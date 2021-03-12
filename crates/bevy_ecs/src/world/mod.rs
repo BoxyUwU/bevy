@@ -126,7 +126,7 @@ impl World {
     ) -> Result<RelationshipId, RelationshipsError> {
         let storage_type = descriptor.storage_type();
 
-        let component_id = self.relationships.new_dummy_id(descriptor.type_id());
+        let component_id = self.relationships.new_dummy_id(descriptor.type_id())?;
         let relationship_info = self.relationships.register_relationship(
             crate::component::Relship::new(
                 self.relationships.relkind_of_has_component(),

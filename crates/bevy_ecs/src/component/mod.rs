@@ -226,12 +226,14 @@ impl Default for Relationships {
             type_id_to_dummy_id: Default::default(),
         };
 
-        let has_component_id =
-            this.new_dummy_id(Some(TypeId::of::<relationship_kinds::HasComponent>()));
+        let has_component_id = this
+            .new_dummy_id(Some(TypeId::of::<relationship_kinds::HasComponent>()))
+            .unwrap();
         this.new_relationship_kind(has_component_id);
 
-        let has_resource_id =
-            this.new_dummy_id(Some(TypeId::of::<relationship_kinds::HasResource>()));
+        let has_resource_id = this
+            .new_dummy_id(Some(TypeId::of::<relationship_kinds::HasResource>()))
+            .unwrap();
         this.new_relationship_kind(has_resource_id);
 
         this
@@ -242,6 +244,8 @@ impl Default for Relationships {
 pub enum RelationshipsError {
     #[error("A relationship of type {0:?} already exists")]
     RelationshipAlreadyExists(Relship),
+    #[error("A type id was already registered")]
+    TypeIdDummyIdAlreadyExists(TypeId),
 }
 
 impl Relationships {
@@ -266,19 +270,27 @@ impl Relationships {
 
     /// TypeId is used by bevy to register a mapping from typeid -> dummyid  
     /// dynamic component use of this should pass in None or else it could
-    /// interfere with bevy's use of this `Relationships` struct
-    pub(crate) fn new_dummy_id(&mut self, type_id: Option<TypeId>) -> DummyId {
+    /// interfere with bevy's use of this `Relationships` struct  
+    /// Returns an error if type_id was Some(_) and already registered
+    pub(crate) fn new_dummy_id(
+        &mut self,
+        type_id: Option<TypeId>,
+    ) -> Result<DummyId, RelationshipsError> {
         let dummy_id = DummyId(self.dummy_id_to_type_id.len());
+
+        if let Some(type_id) = type_id {
+            if self.type_id_to_dummy_id.contains_key(&type_id) {
+                Err(RelationshipsError::TypeIdDummyIdAlreadyExists(type_id))?;
+            }
+            self.type_id_to_dummy_id.insert(type_id, dummy_id);
+        }
+
         self.dummy_id_to_type_id.push(DummyInfo {
             rust_type: type_id,
             id: dummy_id,
         });
 
-        if let Some(type_id) = type_id {
-            let previously_inserted = self.type_id_to_dummy_id.insert(type_id, dummy_id);
-            assert!(previously_inserted.is_none());
-        }
-        dummy_id
+        Ok(dummy_id)
     }
 
     pub(crate) fn type_id_to_dummy_id(&self, type_id: TypeId) -> Option<DummyId> {
@@ -343,7 +355,7 @@ impl Relationships {
     ) -> &RelationshipInfo {
         let component_id = match self.type_id_to_dummy_id(type_id) {
             Some(id) => id,
-            None => self.new_dummy_id(Some(type_id)),
+            None => self.new_dummy_id(Some(type_id)).unwrap(),
         };
 
         self.get_relationship_info_or_insert_with(
@@ -374,7 +386,7 @@ impl Relationships {
     ) -> &RelationshipInfo {
         let component_id = match self.type_id_to_dummy_id(type_id) {
             Some(id) => id,
-            None => self.new_dummy_id(Some(type_id)),
+            None => self.new_dummy_id(Some(type_id)).unwrap(),
         };
 
         self.get_relationship_info_or_insert_with(
