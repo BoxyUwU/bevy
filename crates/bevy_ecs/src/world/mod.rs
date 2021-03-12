@@ -12,7 +12,7 @@ use crate::{
     archetype::{ArchetypeComponentId, ArchetypeComponentInfo, ArchetypeId, Archetypes},
     bundle::{Bundle, Bundles},
     component::{
-        Component, ComponentDescriptor, ComponentFlags, ComponentId, Components, ComponentsError,
+        Component, ComponentFlags, DataLayout, RelationshipId, Relationships, RelationshipsError,
         StorageType,
     },
     entity::{Entities, Entity},
@@ -37,11 +37,11 @@ impl Default for WorldId {
 pub struct World {
     id: WorldId,
     pub(crate) entities: Entities,
-    pub(crate) components: Components,
+    pub(crate) relationships: Relationships,
     pub(crate) archetypes: Archetypes,
     pub(crate) storages: Storages,
     pub(crate) bundles: Bundles,
-    pub(crate) removed_components: SparseSet<ComponentId, Vec<Entity>>,
+    pub(crate) removed_components: SparseSet<RelationshipId, Vec<Entity>>,
     /// Access cache used by [WorldCell].
     pub(crate) archetype_component_access: ArchetypeComponentAccess,
     main_thread_validator: MainThreadValidator,
@@ -74,14 +74,14 @@ impl World {
 
     /// Retrieves this world's [Components] collection
     #[inline]
-    pub fn components(&self) -> &Components {
-        &self.components
+    pub fn components(&self) -> &Relationships {
+        &self.relationships
     }
 
     /// Retrieves a mutable reference to this world's [Components] collection
     #[inline]
-    pub fn components_mut(&mut self) -> &mut Components {
-        &mut self.components
+    pub fn components_mut(&mut self) -> &mut Relationships {
+        &mut self.relationships
     }
 
     /// Retrieves this world's [Storages] collection
@@ -122,18 +122,25 @@ impl World {
     /// ```
     pub fn register_component(
         &mut self,
-        descriptor: ComponentDescriptor,
-    ) -> Result<ComponentId, ComponentsError> {
+        descriptor: DataLayout,
+    ) -> Result<RelationshipId, RelationshipsError> {
         let storage_type = descriptor.storage_type();
-        let component_id = self.components.add(descriptor)?;
+
+        let component_id = self.relationships.new_dummy_id(descriptor.type_id());
+        let relationship_info = self.relationships.register_relationship(
+            crate::component::Relship::new(
+                self.relationships.relkind_of_has_component(),
+                crate::component::EntityOrDummyId::DummyId(component_id),
+            ),
+            descriptor,
+        )?;
+
         // ensure sparse set is created for SparseSet components
         if storage_type == StorageType::SparseSet {
-            // SAFE: just created
-            let info = unsafe { self.components.get_info_unchecked(component_id) };
-            self.storages.sparse_sets.get_or_insert(info);
+            self.storages.sparse_sets.get_or_insert(relationship_info);
         }
 
-        Ok(component_id)
+        Ok(relationship_info.id())
     }
 
     /// Retrieves an [EntityRef] that exposes read-only operations for the given `entity`.
@@ -452,7 +459,7 @@ impl World {
 
     /// Returns an iterator of entities that had components of type `T` removed since the last call to [World::clear_trackers].
     pub fn removed<T: Component>(&self) -> std::iter::Cloned<std::slice::Iter<'_, Entity>> {
-        if let Some(component_id) = self.components.get_id(TypeId::of::<T>()) {
+        if let Some(component_id) = self.relationships.get_component_id(TypeId::of::<T>()) {
             self.removed_with_id(component_id)
         } else {
             [].iter().cloned()
@@ -462,9 +469,9 @@ impl World {
     /// Returns an iterator of entities that had components with the given `component_id` removed since the last call to [World::clear_trackers].
     pub fn removed_with_id(
         &self,
-        component_id: ComponentId,
+        relationship_id: RelationshipId,
     ) -> std::iter::Cloned<std::slice::Iter<'_, Entity>> {
-        if let Some(removed) = self.removed_components.get(component_id) {
+        if let Some(removed) = self.removed_components.get(relationship_id) {
             removed.iter().cloned()
         } else {
             [].iter().cloned()
@@ -475,7 +482,7 @@ impl World {
     /// Resources are "unique" data of a given type.
     #[inline]
     pub fn insert_resource<T: Component>(&mut self, value: T) {
-        let component_id = self.components.get_or_insert_resource_id::<T>();
+        let component_id = self.relationships.get_resource_info_or_insert::<T>().id();
         // SAFE: component_id just initialized and corresponds to resource of type T
         unsafe { self.insert_resource_with_id(component_id, value) };
     }
@@ -485,7 +492,10 @@ impl World {
     #[inline]
     pub fn insert_non_send<T: 'static>(&mut self, value: T) {
         self.validate_non_send_access::<T>();
-        let component_id = self.components.get_or_insert_non_send_resource_id::<T>();
+        let component_id = self
+            .relationships
+            .get_non_send_resource_info_or_insert::<T>()
+            .id();
         // SAFE: component_id just initialized and corresponds to resource of type T
         unsafe { self.insert_resource_with_id(component_id, value) };
     }
@@ -494,7 +504,7 @@ impl World {
     /// Resources are "unique" data of a given type.
     #[inline]
     pub fn remove_resource<T: Component>(&mut self) -> Option<T> {
-        let component_id = self.components.get_resource_id(TypeId::of::<T>())?;
+        let component_id = self.relationships.get_resource_id(TypeId::of::<T>())?;
         let resource_archetype = self.archetypes.resource_mut();
         let unique_components = resource_archetype.unique_components_mut();
         let column = unique_components.get_mut(component_id)?;
@@ -512,7 +522,7 @@ impl World {
     #[inline]
     pub fn contains_resource<T: Component>(&self) -> bool {
         let component_id =
-            if let Some(component_id) = self.components.get_resource_id(TypeId::of::<T>()) {
+            if let Some(component_id) = self.relationships.get_resource_id(TypeId::of::<T>()) {
                 component_id
             } else {
                 return false;
@@ -524,7 +534,7 @@ impl World {
     /// Resources are "unique" data of a given type.
     #[inline]
     pub fn get_resource<T: Component>(&self) -> Option<&T> {
-        let component_id = self.components.get_resource_id(TypeId::of::<T>())?;
+        let component_id = self.relationships.get_resource_id(TypeId::of::<T>())?;
         unsafe { self.get_resource_with_id(component_id) }
     }
 
@@ -556,7 +566,7 @@ impl World {
     /// one mutable access exists at a time.
     #[inline]
     pub unsafe fn get_resource_unchecked_mut<T: Component>(&self) -> Option<Mut<'_, T>> {
-        let component_id = self.components.get_resource_id(TypeId::of::<T>())?;
+        let component_id = self.relationships.get_resource_id(TypeId::of::<T>())?;
         self.get_resource_unchecked_mut_with_id(component_id)
     }
 
@@ -564,7 +574,7 @@ impl World {
     /// Resources are "unique" data of a given type.
     #[inline]
     pub fn get_non_send_resource<T: 'static>(&self) -> Option<&T> {
-        let component_id = self.components.get_resource_id(TypeId::of::<T>())?;
+        let component_id = self.relationships.get_resource_id(TypeId::of::<T>())?;
         // SAFE: component id matches type T
         unsafe { self.get_non_send_with_id(component_id) }
     }
@@ -584,7 +594,7 @@ impl World {
     /// one mutable access exists at a time.
     #[inline]
     pub unsafe fn get_non_send_resource_unchecked_mut<T: 'static>(&self) -> Option<Mut<'_, T>> {
-        let component_id = self.components.get_resource_id(TypeId::of::<T>())?;
+        let component_id = self.relationships.get_resource_id(TypeId::of::<T>())?;
         self.get_non_send_unchecked_mut_with_id(component_id)
     }
 
@@ -609,7 +619,7 @@ impl World {
         f: impl FnOnce(Mut<T>, &mut World) -> U,
     ) -> U {
         let component_id = self
-            .components
+            .relationships
             .get_resource_id(TypeId::of::<T>())
             .expect("resource does not exist");
         let (ptr, mut flags) = {
@@ -650,7 +660,7 @@ impl World {
     #[inline]
     pub(crate) unsafe fn get_resource_with_id<T: 'static>(
         &self,
-        component_id: ComponentId,
+        component_id: RelationshipId,
     ) -> Option<&T> {
         let column = self.get_populated_resource_column(component_id)?;
         Some(&*column.get_ptr().as_ptr().cast::<T>())
@@ -662,7 +672,7 @@ impl World {
     #[inline]
     pub(crate) unsafe fn get_resource_unchecked_mut_with_id<T>(
         &self,
-        component_id: ComponentId,
+        component_id: RelationshipId,
     ) -> Option<Mut<'_, T>> {
         let column = self.get_populated_resource_column(component_id)?;
         Some(Mut {
@@ -676,7 +686,7 @@ impl World {
     #[inline]
     pub(crate) unsafe fn get_non_send_with_id<T: 'static>(
         &self,
-        component_id: ComponentId,
+        component_id: RelationshipId,
     ) -> Option<&T> {
         self.validate_non_send_access::<T>();
         self.get_resource_with_id(component_id)
@@ -688,7 +698,7 @@ impl World {
     #[inline]
     pub(crate) unsafe fn get_non_send_unchecked_mut_with_id<T: 'static>(
         &self,
-        component_id: ComponentId,
+        component_id: RelationshipId,
     ) -> Option<Mut<'_, T>> {
         self.validate_non_send_access::<T>();
         self.get_resource_unchecked_mut_with_id(component_id)
@@ -697,7 +707,7 @@ impl World {
     /// # Safety
     /// `component_id` must be valid and correspond to a resource component of type T
     #[inline]
-    unsafe fn insert_resource_with_id<T>(&mut self, component_id: ComponentId, mut value: T) {
+    unsafe fn insert_resource_with_id<T>(&mut self, component_id: RelationshipId, mut value: T) {
         let column = self.initialize_resource_internal(component_id);
         if column.is_empty() {
             // SAFE: column is of type T and has been allocated above
@@ -722,7 +732,7 @@ impl World {
     /// # Safety
     /// `component_id` must be valid and correspond to a resource component of type T
     #[inline]
-    unsafe fn initialize_resource_internal(&mut self, component_id: ComponentId) -> &mut Column {
+    unsafe fn initialize_resource_internal(&mut self, component_id: RelationshipId) -> &mut Column {
         // SAFE: resource archetype always exists
         let resource_archetype = self
             .archetypes
@@ -730,7 +740,7 @@ impl World {
             .get_unchecked_mut(ArchetypeId::resource().index());
         let resource_archetype_components = &mut resource_archetype.components;
         let archetype_component_count = &mut self.archetypes.archetype_component_count;
-        let components = &self.components;
+        let components = &self.relationships;
         resource_archetype
             .unique_components
             .get_or_insert_with(component_id, || {
@@ -744,20 +754,23 @@ impl World {
                     },
                 );
                 *archetype_component_count += 1;
-                let component_info = components.get_info_unchecked(component_id);
+                let component_info = components.get_relationship_info_unchecked(component_id);
                 Column::with_capacity(component_info, 1)
             })
     }
 
-    pub(crate) fn initialize_resource<T: Component>(&mut self) -> ComponentId {
-        let component_id = self.components.get_or_insert_resource_id::<T>();
+    pub(crate) fn initialize_resource<T: Component>(&mut self) -> RelationshipId {
+        let component_id = self.relationships.get_resource_info_or_insert::<T>().id();
         // SAFE: resource initialized above
         unsafe { self.initialize_resource_internal(component_id) };
         component_id
     }
 
-    pub(crate) fn initialize_non_send_resource<T: 'static>(&mut self) -> ComponentId {
-        let component_id = self.components.get_or_insert_non_send_resource_id::<T>();
+    pub(crate) fn initialize_non_send_resource<T: 'static>(&mut self) -> RelationshipId {
+        let component_id = self
+            .relationships
+            .get_non_send_resource_info_or_insert::<T>()
+            .id();
         // SAFE: resource initialized above
         unsafe { self.initialize_resource_internal(component_id) };
         component_id
@@ -766,7 +779,7 @@ impl World {
     /// returns the resource column if the requested resource exists
     pub(crate) fn get_populated_resource_column(
         &self,
-        component_id: ComponentId,
+        component_id: RelationshipId,
     ) -> Option<&Column> {
         let resource_archetype = self.archetypes.resource();
         let unique_components = resource_archetype.unique_components();
@@ -814,7 +827,7 @@ impl fmt::Debug for World {
             .field("id", &self.id)
             .field("entity_count", &self.entities.len())
             .field("archetype_count", &self.archetypes.len())
-            .field("component_count", &self.components.len())
+            .field("component_count", &self.relationships.len())
             .field(
                 "resource_count",
                 &self.archetypes.resource().unique_components.len(),

@@ -1,6 +1,6 @@
 use crate::{
     archetype::{Archetype, ArchetypeComponentId},
-    component::{Component, ComponentFlags, ComponentId, StorageType},
+    component::{Component, ComponentFlags, RelationshipId, StorageType},
     entity::Entity,
     query::{Access, FilteredAccess},
     storage::{ComponentSparseSet, Table, Tables},
@@ -62,7 +62,7 @@ pub trait Fetch<'w>: Sized {
 /// reflects the results of [FetchState::matches_archetype], [FetchState::matches_table], [Fetch::archetype_fetch], and [Fetch::table_fetch]
 pub unsafe trait FetchState: Send + Sync + Sized {
     fn init(world: &mut World) -> Self;
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>);
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>);
     fn update_archetype_component_access(
         &self,
         archetype: &Archetype,
@@ -95,7 +95,7 @@ unsafe impl FetchState for EntityState {
         Self
     }
 
-    fn update_component_access(&self, _access: &mut FilteredAccess<ComponentId>) {}
+    fn update_component_access(&self, _access: &mut FilteredAccess<RelationshipId>) {}
 
     fn update_archetype_component_access(
         &self,
@@ -162,7 +162,7 @@ impl<T: Component> WorldQuery for &T {
 }
 
 pub struct ReadState<T> {
-    component_id: ComponentId,
+    component_id: RelationshipId,
     storage_type: StorageType,
     marker: PhantomData<T>,
 }
@@ -170,15 +170,15 @@ pub struct ReadState<T> {
 // SAFE: component access and archetype component access are properly updated to reflect that T is read
 unsafe impl<T: Component> FetchState for ReadState<T> {
     fn init(world: &mut World) -> Self {
-        let component_info = world.components.get_or_insert_info::<T>();
+        let component_info = world.relationships.get_component_info_or_insert::<T>();
         ReadState {
             component_id: component_info.id(),
-            storage_type: component_info.storage_type(),
+            storage_type: component_info.data_layout().storage_type(),
             marker: PhantomData,
         }
     }
 
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         access.add_read(self.component_id)
     }
 
@@ -307,7 +307,7 @@ pub struct WriteFetch<T> {
 }
 
 pub struct WriteState<T> {
-    component_id: ComponentId,
+    component_id: RelationshipId,
     storage_type: StorageType,
     marker: PhantomData<T>,
 }
@@ -315,15 +315,15 @@ pub struct WriteState<T> {
 // SAFE: component access and archetype component access are properly updated to reflect that T is written
 unsafe impl<T: Component> FetchState for WriteState<T> {
     fn init(world: &mut World) -> Self {
-        let component_info = world.components.get_or_insert_info::<T>();
+        let component_info = world.relationships.get_component_info_or_insert::<T>();
         WriteState {
             component_id: component_info.id(),
-            storage_type: component_info.storage_type(),
+            storage_type: component_info.data_layout().storage_type(),
             marker: PhantomData,
         }
     }
 
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         if access.access().has_read(self.component_id) {
             panic!("&mut {} conflicts with a previous access in this query. Mutable component access must be unique.",
                 std::any::type_name::<T>());
@@ -465,7 +465,7 @@ unsafe impl<T: FetchState> FetchState for OptionState<T> {
         }
     }
 
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         self.state.update_component_access(access);
     }
 
@@ -584,7 +584,7 @@ impl<T: Component> WorldQuery for Flags<T> {
 }
 
 pub struct FlagsState<T> {
-    component_id: ComponentId,
+    component_id: RelationshipId,
     storage_type: StorageType,
     marker: PhantomData<T>,
 }
@@ -592,15 +592,15 @@ pub struct FlagsState<T> {
 // SAFE: component access and archetype component access are properly updated to reflect that T is read
 unsafe impl<T: Component> FetchState for FlagsState<T> {
     fn init(world: &mut World) -> Self {
-        let component_info = world.components.get_or_insert_info::<T>();
+        let component_info = world.relationships.get_component_info_or_insert::<T>();
         Self {
             component_id: component_info.id(),
-            storage_type: component_info.storage_type(),
+            storage_type: component_info.data_layout().storage_type(),
             marker: PhantomData,
         }
     }
 
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         access.add_read(self.component_id)
     }
 
@@ -778,7 +778,7 @@ macro_rules! impl_tuple_fetch {
                 ($($name::init(_world),)*)
             }
 
-            fn update_component_access(&self, _access: &mut FilteredAccess<ComponentId>) {
+            fn update_component_access(&self, _access: &mut FilteredAccess<RelationshipId>) {
                 let ($($name,)*) = self;
                 $($name.update_component_access(_access);)*
             }

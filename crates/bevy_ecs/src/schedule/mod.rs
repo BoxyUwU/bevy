@@ -18,7 +18,7 @@ pub use system_set::*;
 
 use crate::{
     archetype::{Archetype, ArchetypeComponentId},
-    component::ComponentId,
+    component::RelationshipId,
     query::Access,
     system::{BoxedSystem, IntoSystem, System, SystemId},
     world::World,
@@ -274,7 +274,7 @@ pub struct RunOnce {
     ran: bool,
     system_id: SystemId,
     archetype_component_access: Access<ArchetypeComponentId>,
-    component_access: Access<ComponentId>,
+    component_access: Access<RelationshipId>,
 }
 
 impl Default for RunOnce {
@@ -306,7 +306,7 @@ impl System for RunOnce {
         &self.archetype_component_access
     }
 
-    fn component_access(&self) -> &Access<ComponentId> {
+    fn component_access(&self) -> &Access<RelationshipId> {
         &self.component_access
     }
 

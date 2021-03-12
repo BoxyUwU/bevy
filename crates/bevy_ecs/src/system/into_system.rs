@@ -1,6 +1,6 @@
 use crate::{
     archetype::{Archetype, ArchetypeComponentId},
-    component::ComponentId,
+    component::RelationshipId,
     query::{Access, FilteredAccessSet},
     system::{System, SystemId, SystemParam, SystemParamFetch, SystemParamState},
     world::World,
@@ -11,7 +11,7 @@ use std::{borrow::Cow, marker::PhantomData};
 pub struct SystemState {
     pub(crate) id: SystemId,
     pub(crate) name: Cow<'static, str>,
-    pub(crate) component_access_set: FilteredAccessSet<ComponentId>,
+    pub(crate) component_access_set: FilteredAccessSet<RelationshipId>,
     pub(crate) archetype_component_access: Access<ArchetypeComponentId>,
     // NOTE: this must be kept private. making a SystemState non-send is irreversible to prevent SystemParams from overriding each other
     is_send: bool,
@@ -122,7 +122,7 @@ where
     }
 
     #[inline]
-    fn component_access(&self) -> &Access<ComponentId> {
+    fn component_access(&self) -> &Access<RelationshipId> {
         &self.system_state.component_access_set.combined_access()
     }
 

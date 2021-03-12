@@ -1,7 +1,7 @@
 pub use bevy_ecs_macros::Bundle;
 
 use crate::{
-    component::{Component, ComponentFlags, ComponentId, Components, StorageType, TypeInfo},
+    component::{Component, ComponentFlags, RelationshipId, Relationships, StorageType, TypeInfo},
     entity::Entity,
     storage::{SparseSetIndex, SparseSets, Table},
 };
@@ -109,7 +109,7 @@ impl SparseSetIndex for BundleId {
 
 pub struct BundleInfo {
     pub(crate) id: BundleId,
-    pub(crate) component_ids: Vec<ComponentId>,
+    pub(crate) relationship_ids: Vec<RelationshipId>,
     pub(crate) storage_types: Vec<StorageType>,
 }
 
@@ -130,7 +130,7 @@ impl BundleInfo {
         let mut bundle_component = 0;
         bundle.get_components(|component_ptr| {
             // SAFE: component_id was initialized by get_dynamic_bundle_info
-            let component_id = *self.component_ids.get_unchecked(bundle_component);
+            let component_id = *self.relationship_ids.get_unchecked(bundle_component);
             let flags = *bundle_flags.get_unchecked(bundle_component);
             match self.storage_types[bundle_component] {
                 StorageType::Table => {
@@ -153,8 +153,8 @@ impl BundleInfo {
     }
 
     #[inline]
-    pub fn components(&self) -> &[ComponentId] {
-        &self.component_ids
+    pub fn components(&self) -> &[RelationshipId] {
+        &self.relationship_ids
     }
 
     #[inline]
@@ -182,7 +182,7 @@ impl Bundles {
 
     pub(crate) fn init_info<'a, T: Bundle>(
         &'a mut self,
-        components: &mut Components,
+        components: &mut Relationships,
     ) -> &'a BundleInfo {
         let bundle_infos = &mut self.bundle_infos;
         let id = self.bundle_ids.entry(TypeId::of::<T>()).or_insert_with(|| {
@@ -202,17 +202,16 @@ fn initialize_bundle(
     bundle_type_name: &'static str,
     type_info: &[TypeInfo],
     id: BundleId,
-    components: &mut Components,
+    components: &mut Relationships,
 ) -> BundleInfo {
     let mut component_ids = Vec::new();
     let mut storage_types = Vec::new();
 
     for type_info in type_info {
-        let component_id = components.get_or_insert_with(type_info.type_id(), || type_info.clone());
-        // SAFE: get_with_type_info ensures info was created
-        let info = unsafe { components.get_info_unchecked(component_id) };
-        component_ids.push(component_id);
-        storage_types.push(info.storage_type());
+        let component_info =
+            components.get_component_info_or_insert_with(type_info.type_id(), || type_info.clone());
+        component_ids.push(component_info.id());
+        storage_types.push(component_info.data_layout().storage_type());
     }
 
     let mut deduped = component_ids.clone();
@@ -224,7 +223,7 @@ fn initialize_bundle(
 
     BundleInfo {
         id,
-        component_ids,
+        relationship_ids: component_ids,
         storage_types,
     }
 }

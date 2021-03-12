@@ -15,6 +15,7 @@ pub mod prelude {
     pub use crate::reflect::ReflectComponent;
     pub use crate::{
         bundle::Bundle,
+        component::relationship_kinds::*,
         entity::Entity,
         query::{Added, Changed, Flags, Mutated, Or, QueryState, With, WithBundle, Without},
         schedule::{
@@ -33,7 +34,7 @@ pub mod prelude {
 mod tests {
     use crate::{
         bundle::Bundle,
-        component::{Component, ComponentDescriptor, StorageType, TypeInfo},
+        component::{Component, DataLayout, StorageType, TypeInfo},
         entity::Entity,
         query::{Added, Changed, FilterFetch, Flags, Mutated, Or, With, Without, WorldQuery},
         world::{Mut, World},
@@ -51,7 +52,7 @@ mod tests {
     fn random_access() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<i32>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<i32>(StorageType::SparseSet))
             .unwrap();
         let e = world.spawn().insert_bundle(("abc", 123)).id();
         let f = world.spawn().insert_bundle(("def", 456, true)).id();
@@ -85,7 +86,7 @@ mod tests {
 
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<i32>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<i32>(StorageType::SparseSet))
             .unwrap();
         let e1 = world.spawn().insert_bundle(Foo { x: "abc", y: 123 }).id();
         let e2 = world.spawn().insert_bundle(("def", 456, true)).id();
@@ -166,7 +167,7 @@ mod tests {
     fn despawn_mixed_storage() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<i32>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<i32>(StorageType::SparseSet))
             .unwrap();
         let e = world.spawn().insert_bundle(("abc", 123)).id();
         let f = world.spawn().insert_bundle(("def", 456)).id();
@@ -316,7 +317,7 @@ mod tests {
     fn query_filter_with_sparse() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<f32>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<f32>(StorageType::SparseSet))
             .unwrap();
         world.spawn().insert_bundle((123u32, 1.0f32));
         world.spawn().insert(456u32);
@@ -332,7 +333,7 @@ mod tests {
     fn query_filter_with_sparse_for_each() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<f32>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<f32>(StorageType::SparseSet))
             .unwrap();
         world.spawn().insert_bundle((123u32, 1.0f32));
         world.spawn().insert(456u32);
@@ -375,7 +376,7 @@ mod tests {
     fn query_optional_component_sparse() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<bool>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<bool>(StorageType::SparseSet))
             .unwrap();
         let e = world.spawn().insert_bundle(("abc", 123)).id();
         let f = world.spawn().insert_bundle(("def", 456, true)).id();
@@ -393,7 +394,7 @@ mod tests {
     fn query_optional_component_sparse_no_match() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<bool>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<bool>(StorageType::SparseSet))
             .unwrap();
         let e = world.spawn().insert_bundle(("abc", 123)).id();
         let f = world.spawn().insert_bundle(("def", 456)).id();
@@ -480,7 +481,7 @@ mod tests {
     fn sparse_set_add_remove_many() {
         let mut world = World::default();
         world
-            .register_component(ComponentDescriptor::new::<usize>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<usize>(StorageType::SparseSet))
             .unwrap();
         let mut entities = Vec::with_capacity(1000);
         for _ in 0..4 {
@@ -538,7 +539,7 @@ mod tests {
     fn remove_tracking() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<&'static str>(
+            .register_component(DataLayout::from_generic::<&'static str>(
                 StorageType::SparseSet,
             ))
             .unwrap();

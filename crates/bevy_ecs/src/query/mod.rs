@@ -13,7 +13,7 @@ pub use state::*;
 #[cfg(test)]
 mod tests {
     use crate::{
-        component::{ComponentDescriptor, StorageType},
+        component::{DataLayout, StorageType},
         world::World,
     };
 
@@ -41,7 +41,7 @@ mod tests {
     fn multi_storage_query() {
         let mut world = World::new();
         world
-            .register_component(ComponentDescriptor::new::<A>(StorageType::SparseSet))
+            .register_component(DataLayout::from_generic::<A>(StorageType::SparseSet))
             .unwrap();
 
         world.spawn().insert_bundle((A(1), B(2)));

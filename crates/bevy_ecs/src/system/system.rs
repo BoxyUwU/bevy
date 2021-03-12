@@ -1,6 +1,6 @@
 use crate::{
     archetype::{Archetype, ArchetypeComponentId},
-    component::ComponentId,
+    component::RelationshipId,
     query::Access,
     world::World,
 };
@@ -23,7 +23,8 @@ pub trait System: Send + Sync + 'static {
     fn name(&self) -> Cow<'static, str>;
     fn id(&self) -> SystemId;
     fn new_archetype(&mut self, archetype: &Archetype);
-    fn component_access(&self) -> &Access<ComponentId>;
+    // FIXME(Relationships) this is wrong, we need to be able to say we access either `ChildOf *` or `ChildOf parent`
+    fn component_access(&self) -> &Access<RelationshipId>;
     fn archetype_component_access(&self) -> &Access<ArchetypeComponentId>;
     fn is_send(&self) -> bool;
     /// # Safety

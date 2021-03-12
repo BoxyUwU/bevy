@@ -1,6 +1,6 @@
 use crate::{
     archetype::ArchetypeId,
-    component::{ComponentFlags, ComponentId, ComponentInfo, Components},
+    component::{ComponentFlags, RelationshipId, RelationshipInfo, Relationships},
     entity::Entity,
     storage::{BlobVec, SparseSet},
 };
@@ -32,17 +32,24 @@ impl TableId {
 }
 
 pub struct Column {
-    pub(crate) component_id: ComponentId,
+    pub(crate) relationship_id: RelationshipId,
     pub(crate) data: BlobVec,
     pub(crate) flags: UnsafeCell<Vec<ComponentFlags>>,
 }
 
 impl Column {
     #[inline]
-    pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
+    pub fn with_capacity(
+        relationship_info: &crate::component::RelationshipInfo,
+        capacity: usize,
+    ) -> Self {
         Column {
-            component_id: component_info.id(),
-            data: BlobVec::new(component_info.layout(), component_info.drop(), capacity),
+            relationship_id: relationship_info.id(),
+            data: BlobVec::new(
+                relationship_info.data_layout().layout(),
+                relationship_info.data_layout().drop(),
+                capacity,
+            ),
             flags: UnsafeCell::new(Vec::with_capacity(capacity)),
         }
     }
@@ -149,7 +156,7 @@ impl Column {
 }
 
 pub struct Table {
-    columns: SparseSet<ComponentId, Column>,
+    columns: SparseSet<RelationshipId, Column>,
     entities: Vec<Entity>,
     archetypes: Vec<ArchetypeId>,
     grow_amount: usize,
@@ -186,7 +193,7 @@ impl Table {
         self.archetypes.push(archetype_id);
     }
 
-    pub fn add_column(&mut self, component_info: &ComponentInfo) {
+    pub fn add_column(&mut self, component_info: &RelationshipInfo) {
         self.columns.insert(
             component_info.id(),
             Column::with_capacity(component_info, self.capacity()),
@@ -224,7 +231,7 @@ impl Table {
         let new_row = new_table.allocate(self.entities.swap_remove(row));
         for column in self.columns.values_mut() {
             let (data, flags) = column.swap_remove_and_forget_unchecked(row);
-            if let Some(new_column) = new_table.get_column_mut(column.component_id) {
+            if let Some(new_column) = new_table.get_column_mut(column.relationship_id) {
                 new_column.set_unchecked(new_row, data);
                 *new_column.get_flags_unchecked_mut(new_row) = flags;
             }
@@ -252,7 +259,7 @@ impl Table {
         let is_last = row == self.entities.len() - 1;
         let new_row = new_table.allocate(self.entities.swap_remove(row));
         for column in self.columns.values_mut() {
-            if let Some(new_column) = new_table.get_column_mut(column.component_id) {
+            if let Some(new_column) = new_table.get_column_mut(column.relationship_id) {
                 let (data, flags) = column.swap_remove_and_forget_unchecked(row);
                 new_column.set_unchecked(new_row, data);
                 *new_column.get_flags_unchecked_mut(new_row) = flags;
@@ -283,7 +290,7 @@ impl Table {
         let is_last = row == self.entities.len() - 1;
         let new_row = new_table.allocate(self.entities.swap_remove(row));
         for column in self.columns.values_mut() {
-            let new_column = new_table.get_column_mut(column.component_id).unwrap();
+            let new_column = new_table.get_column_mut(column.relationship_id).unwrap();
             let (data, flags) = column.swap_remove_and_forget_unchecked(row);
             new_column.set_unchecked(new_row, data);
             *new_column.get_flags_unchecked_mut(new_row) = flags;
@@ -299,17 +306,17 @@ impl Table {
     }
 
     #[inline]
-    pub fn get_column(&self, component_id: ComponentId) -> Option<&Column> {
+    pub fn get_column(&self, component_id: RelationshipId) -> Option<&Column> {
         self.columns.get(component_id)
     }
 
     #[inline]
-    pub fn get_column_mut(&mut self, component_id: ComponentId) -> Option<&mut Column> {
+    pub fn get_column_mut(&mut self, component_id: RelationshipId) -> Option<&mut Column> {
         self.columns.get_mut(component_id)
     }
 
     #[inline]
-    pub fn has_column(&self, component_id: ComponentId) -> bool {
+    pub fn has_column(&self, component_id: RelationshipId) -> bool {
         self.columns.contains(component_id)
     }
 
@@ -437,8 +444,8 @@ impl Tables {
     /// `component_ids` must contain components that exist in `components`
     pub unsafe fn get_id_or_insert(
         &mut self,
-        component_ids: &[ComponentId],
-        components: &Components,
+        component_ids: &[RelationshipId],
+        components: &Relationships,
     ) -> TableId {
         let mut hasher = AHasher::default();
         component_ids.hash(&mut hasher);
@@ -447,7 +454,7 @@ impl Tables {
         *self.table_ids.entry(hash).or_insert_with(move || {
             let mut table = Table::with_capacity(0, component_ids.len(), 64);
             for component_id in component_ids.iter() {
-                table.add_column(components.get_info_unchecked(*component_id));
+                table.add_column(components.get_relationship_info_unchecked(*component_id));
             }
             tables.push(table);
             TableId(tables.len() - 1)
@@ -468,19 +475,21 @@ impl Tables {
 #[cfg(test)]
 mod tests {
     use crate::{
-        component::{Components, TypeInfo},
+        component::{Relationships, TypeInfo},
         entity::Entity,
         storage::Table,
     };
 
     #[test]
     fn table() {
-        let mut components = Components::default();
+        let mut components = Relationships::default();
         let type_info = TypeInfo::of::<usize>();
-        let component_id = components.get_or_insert_with(type_info.type_id(), || type_info);
+        let component_id = components
+            .get_component_info_or_insert_with(type_info.type_id(), || type_info)
+            .id();
         let columns = &[component_id];
         let mut table = Table::with_capacity(0, columns.len(), 64);
-        table.add_column(components.get_info(component_id).unwrap());
+        table.add_column(components.get_relationship_info(component_id).unwrap());
         let entities = (0..200).map(Entity::new).collect::<Vec<_>>();
         for (row, entity) in entities.iter().cloned().enumerate() {
             unsafe {

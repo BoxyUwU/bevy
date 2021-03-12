@@ -1,7 +1,7 @@
 use crate::{
     archetype::{Archetype, ArchetypeComponentId},
     bundle::Bundle,
-    component::{Component, ComponentFlags, ComponentId, StorageType},
+    component::{Component, ComponentFlags, RelationshipId, StorageType},
     entity::Entity,
     query::{Access, Fetch, FetchState, FilteredAccess, WorldQuery},
     storage::{ComponentSparseSet, Table, Tables},
@@ -60,7 +60,7 @@ pub struct WithFetch<T> {
     marker: PhantomData<T>,
 }
 pub struct WithState<T> {
-    component_id: ComponentId,
+    component_id: RelationshipId,
     storage_type: StorageType,
     marker: PhantomData<T>,
 }
@@ -68,16 +68,16 @@ pub struct WithState<T> {
 // SAFE: no component access or archetype component access
 unsafe impl<T: Component> FetchState for WithState<T> {
     fn init(world: &mut World) -> Self {
-        let component_info = world.components.get_or_insert_info::<T>();
+        let component_info = world.relationships.get_component_info_or_insert::<T>();
         Self {
             component_id: component_info.id(),
-            storage_type: component_info.storage_type(),
+            storage_type: component_info.data_layout().storage_type(),
             marker: PhantomData,
         }
     }
 
     #[inline]
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         access.add_with(self.component_id);
     }
 
@@ -151,7 +151,7 @@ pub struct WithoutFetch<T> {
 }
 
 pub struct WithoutState<T> {
-    component_id: ComponentId,
+    component_id: RelationshipId,
     storage_type: StorageType,
     marker: PhantomData<T>,
 }
@@ -159,16 +159,16 @@ pub struct WithoutState<T> {
 // SAFE: no component access or archetype component access
 unsafe impl<T: Component> FetchState for WithoutState<T> {
     fn init(world: &mut World) -> Self {
-        let component_info = world.components.get_or_insert_info::<T>();
+        let component_info = world.relationships.get_component_info_or_insert::<T>();
         Self {
             component_id: component_info.id(),
-            storage_type: component_info.storage_type(),
+            storage_type: component_info.data_layout().storage_type(),
             marker: PhantomData,
         }
     }
 
     #[inline]
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         access.add_without(self.component_id);
     }
 
@@ -236,7 +236,7 @@ pub struct WithBundleFetch<T: Bundle> {
 }
 
 pub struct WithBundleState<T: Bundle> {
-    component_ids: Vec<ComponentId>,
+    component_ids: Vec<RelationshipId>,
     is_dense: bool,
     marker: PhantomData<T>,
 }
@@ -244,19 +244,23 @@ pub struct WithBundleState<T: Bundle> {
 // SAFE: no component access or archetype component access
 unsafe impl<T: Bundle> FetchState for WithBundleState<T> {
     fn init(world: &mut World) -> Self {
-        let bundle_info = world.bundles.init_info::<T>(&mut world.components);
-        let components = &world.components;
+        let bundle_info = world.bundles.init_info::<T>(&mut world.relationships);
+        let components = &world.relationships;
         Self {
-            component_ids: bundle_info.component_ids.clone(),
-            is_dense: !bundle_info.component_ids.iter().any(|id| unsafe {
-                components.get_info_unchecked(*id).storage_type() != StorageType::Table
+            component_ids: bundle_info.relationship_ids.clone(),
+            is_dense: !bundle_info.relationship_ids.iter().any(|id| unsafe {
+                components
+                    .get_relationship_info_unchecked(*id)
+                    .data_layout()
+                    .storage_type()
+                    != StorageType::Table
             }),
             marker: PhantomData,
         }
     }
 
     #[inline]
-    fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+    fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
         for component_id in self.component_ids.iter().cloned() {
             access.add_with(component_id);
         }
@@ -415,7 +419,7 @@ macro_rules! impl_query_filter_tuple {
                 Or(($($filter::init(world),)*))
             }
 
-            fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+            fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
                 let ($($filter,)*) = &self.0;
                 $($filter.update_component_access(access);)*
             }
@@ -457,7 +461,7 @@ macro_rules! impl_flag_filter {
         }
 
         pub struct $state_name<T> {
-            component_id: ComponentId,
+            component_id: RelationshipId,
             storage_type: StorageType,
             marker: PhantomData<T>,
         }
@@ -471,16 +475,16 @@ macro_rules! impl_flag_filter {
         // SAFE: this reads the T component. archetype component access and component access are updated to reflect that
         unsafe impl<T: Component> FetchState for $state_name<T> {
             fn init(world: &mut World) -> Self {
-                let component_info = world.components.get_or_insert_info::<T>();
+                let component_info = world.relationships.get_component_info_or_insert::<T>();
                 Self {
                     component_id: component_info.id(),
-                    storage_type: component_info.storage_type(),
+                    storage_type: component_info.data_layout().storage_type(),
                     marker: PhantomData,
                 }
             }
 
             #[inline]
-            fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
+            fn update_component_access(&self, access: &mut FilteredAccess<RelationshipId>) {
                 access.add_read(self.component_id);
             }
 
