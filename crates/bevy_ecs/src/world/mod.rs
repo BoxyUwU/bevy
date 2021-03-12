@@ -103,14 +103,14 @@ impl World {
         WorldCell::new(self)
     }
 
-    /// Registers a new component using the given [ComponentDescriptor]. Components do not need to be manually
+    /// Registers a new component using the given [DataLayout]. Components do not need to be manually
     /// registered. This just provides a way to override default configuration. Attempting to register a component
     /// with a type that has already been used by [World] will result in an error.
     ///
     /// The default component storage type can be overridden like this:
     ///
     /// ```
-    /// use bevy_ecs::{component::{ComponentDescriptor, StorageType}, world::World};
+    /// use bevy_ecs::{component::{DataLayout, StorageType}, world::World};
     ///
     /// struct Position {
     ///   x: f32,
@@ -118,7 +118,7 @@ impl World {
     /// }
     ///
     /// let mut world = World::new();
-    /// world.register_component(ComponentDescriptor::new::<Position>(StorageType::SparseSet)).unwrap();
+    /// world.register_component(DataLayout::from_generic::<Position>(StorageType::SparseSet)).unwrap();
     /// ```
     pub fn register_component(
         &mut self,
